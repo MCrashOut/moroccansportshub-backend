@@ -4,6 +4,7 @@ const admin = require('firebase-admin');
 const {
   startAiAutoPostSystem,
   runAutoPost,
+  forceAutoPostNow,
   setPaused,
   getSystemState,
   getTodayStats,
@@ -126,22 +127,9 @@ app.get('/test-autopost', async (_req, res) => {
   }
 });
 
-// THIS ONE BYPASSES THE DAILY LIMIT ONLY FOR MANUAL TESTING
 app.get('/force-autopost', async (_req, res) => {
   try {
-    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
-
-    await db.collection('ai_autopost_history').add({
-      title: '__manual_force_trigger__',
-      link: '',
-      fingerprint: `manual-force-${Date.now()}`,
-      isMoroccan: false,
-      category: 'manual',
-      hasImage: false,
-      createdAt: yesterday
-    });
-
-    const result = await runAutoPost(db);
+    const result = await forceAutoPostNow(db);
     res.json({
       ok: true,
       forced: true,

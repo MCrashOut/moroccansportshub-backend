@@ -406,24 +406,13 @@ async function pickBestCandidate(db) {
   return null;
 }
 
-async function runAutoPost(db) {
-  const state = await getSystemState(db);
-  if (state.paused) {
-    return { ok: true, skipped: true, reason: "Autopost is paused." };
-  }
-
-  const todayStats = await getTodayStats(db);
-  if (todayStats.total >= DAILY_TARGET) {
-    return { ok: true, skipped: true, reason: "Daily target already reached." };
-  }
-
+async function publishBestCandidate(db) {
   const item = await pickBestCandidate(db);
   if (!item) {
     return { ok: true, skipped: true, reason: "No fresh unique story found." };
   }
 
   const fingerprint = buildFingerprint(item);
-
   await createPost(db, item);
   await markAsPosted(db, item, fingerprint);
 
@@ -436,6 +425,29 @@ async function runAutoPost(db) {
     category: detectCategory(item),
     hasImage: !!pickImageUrl(item)
   };
+}
+
+async function runAutoPost(db) {
+  const state = await getSystemState(db);
+  if (state.paused) {
+    return { ok: true, skipped: true, reason: "Autopost is paused." };
+  }
+
+  const todayStats = await getTodayStats(db);
+  if (todayStats.total >= DAILY_TARGET) {
+    return { ok: true, skipped: true, reason: "Daily target already reached." };
+  }
+
+  return publishBestCandidate(db);
+}
+
+async function forceAutoPostNow(db) {
+  const state = await getSystemState(db);
+  if (state.paused) {
+    return { ok: true, skipped: true, reason: "Autopost is paused." };
+  }
+
+  return publishBestCandidate(db);
 }
 
 function startAiAutoPostSystem({ db }) {
@@ -458,6 +470,7 @@ function startAiAutoPostSystem({ db }) {
 module.exports = {
   startAiAutoPostSystem,
   runAutoPost,
+  forceAutoPostNow,
   setPaused,
   getSystemState,
   getTodayStats,

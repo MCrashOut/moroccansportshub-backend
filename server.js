@@ -113,4 +113,14 @@ ${contextText}User question: ${question}
 
 app.listen(PORT, () => {
   console.log(`AI backend listening on port ${PORT}`);
+app.get('/test-autopost', async (req, res) => {
+  try {
+    const { runAutoPost } = require('./moroccansportshub_ai_autopost_system');
+    await runAutoPost(db);
+    res.send("✅ AI post created");
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("❌ Error");
+  }
+});
 });

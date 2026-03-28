@@ -1,8 +1,13 @@
 require('dotenv').config();
 const express = require('express');
 const admin = require('firebase-admin');
+const { startAiAutoPostSystem, runAutoPost } = require('./moroccansportshub_ai_autopost_system');
 
 // 🔥 INIT FIREBASE ADMIN (from Railway env)
+if (!process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
+  throw new Error('FIREBASE_SERVICE_ACCOUNT_JSON is missing.');
+}
+
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
 
 admin.initializeApp({
@@ -15,10 +20,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
-// ✅ IMPORT AI AUTOPOST SYSTEM
-const { startAiAutoPostSystem } = require('./moroccansportshub_ai_autopost_system');
-
-// ✅ START AUTOPOST SYSTEM
+// ✅ START AI AUTOPOST SYSTEM
 startAiAutoPostSystem({ db });
 
 // CORS
@@ -38,7 +40,7 @@ app.get('/', (_req, res) => {
   res.send('Moroccansportshub AI backend is running.');
 });
 
-// 🔥 YOUR EXISTING AI ROUTE (UNCHANGED)
+// 🔥 YOUR EXISTING AI ROUTE
 app.post('/api/ask', async (req, res) => {
   try {
     const { question, siteContext = [] } = req.body || {};
@@ -111,16 +113,29 @@ ${contextText}User question: ${question}
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`AI backend listening on port ${PORT}`);
-app.get('/test-autopost', async (req, res) => {
+// ✅ TEST AUTOPOST ROUTE
+app.get('/test-autopost', async (_req, res) => {
   try {
-    const { runAutoPost } = require('./moroccansportshub_ai_autopost_system');
-    await runAutoPost(db);
-    res.send("✅ AI post created");
+    const result = await runAutoPost(db);
+    res.json(result);
   } catch (err) {
-    console.error(err);
-    res.status(500).send("❌ Error");
+    console.error('test-autopost error:', err);
+    res.status(500).json({ error: err.message || 'Error' });
   }
 });
+
+// ✅ AUTOPOST STATUS ROUTE
+app.get('/autopost-status', (_req, res) => {
+  res.json({
+    ok: true,
+    timezone: process.env.AUTOPOST_TIMEZONE || 'Africa/Casablanca',
+    requireImage: (process.env.AUTOPOST_REQUIRE_IMAGE || 'true').toLowerCase() !== 'false',
+    dailyTarget: Number(process.env.AUTOPOST_DAILY_TARGET || 5),
+    moroccanTargetPerDay: Number(process.env.AUTOPOST_MOROCCAN_TARGET_PER_DAY || 3),
+    avatarUrl: process.env.AI_AUTOPOST_AVATAR_URL || ''
+  });
+});
+
+app.listen(PORT, () => {
+  console.log(`AI backend listening on port ${PORT}`);
 });

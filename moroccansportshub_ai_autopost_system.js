@@ -26,13 +26,15 @@ const ALL_FEEDS = [...MOROCCAN_FEEDS, ...GLOBAL_FEEDS];
 
 const USERNAME = "Rabii El Baghdadi";
 const BADGE = "AI";
-const HISTORY_COLLECTION = "ai_autopost_history";
 const POSTS_COLLECTION = "posts";
+const HISTORY_COLLECTION = "ai_autopost_history";
+const STATE_COLLECTION = "system_state";
+const STATE_DOC_ID = "autopost";
 
 const DEFAULT_TIMEZONE = process.env.AUTOPOST_TIMEZONE || "Africa/Casablanca";
 const REQUIRE_IMAGE = (process.env.AUTOPOST_REQUIRE_IMAGE || "true").toLowerCase() !== "false";
-const MOROCCAN_TARGET_PER_DAY = Number(process.env.AUTOPOST_MOROCCAN_TARGET_PER_DAY || 3);
 const DAILY_TARGET = Number(process.env.AUTOPOST_DAILY_TARGET || 5);
+const MOROCCAN_TARGET_PER_DAY = Number(process.env.AUTOPOST_MOROCCAN_TARGET_PER_DAY || 3);
 
 function normalizeText(text = "") {
   return String(text)
@@ -57,33 +59,15 @@ function buildFingerprint(item) {
 
 function isMoroccanStory(item) {
   const text = normalizeText(
-    `${item.title || ""} ${item.contentSnippet || ""} ${item.content || ""} ${item.link || ""}`
+    `${item.title || ""} ${item.contentSnippet || ""} ${item.content || ""} ${item.contentEncoded || ""} ${item.link || ""}`
   );
 
   const signals = [
-    "morocco",
-    "moroccan",
-    "maroc",
-    "botola",
-    "atlas lions",
-    "atlas lion",
-    "frmf",
-    "casablanca",
-    "rabat",
-    "wydad",
-    "raja",
-    "far rabat",
-    "renaissance berkane",
-    "berkane",
-    "nahdat berkane",
-    "futsal morocco",
-    "hakimi",
-    "el kaabi",
-    "ounahi",
-    "ziyech",
-    "en nesyri",
-    "yassine bono",
-    "bono"
+    "morocco", "moroccan", "maroc", "botola", "frmf", "atlas lions",
+    "atlas lion", "casablanca", "rabat", "wydad", "raja", "far rabat",
+    "berkane", "nahdat berkane", "renaissance berkane", "hakimi",
+    "ziyech", "ounahi", "en nesyri", "el kaabi", "bono", "moroccan football",
+    "moroccan league", "moroccan national team"
   ];
 
   return signals.some(s => text.includes(s));
@@ -91,15 +75,8 @@ function isMoroccanStory(item) {
 
 function detectCategory(item) {
   const text = normalizeText(
-    `${item.title || ""} ${item.contentSnippet || ""} ${item.content || ""}`
+    `${item.title || ""} ${item.contentSnippet || ""} ${item.content || ""} ${item.contentEncoded || ""}`
   );
-
-  if (
-    text.includes("tennis") ||
-    text.includes("atp") ||
-    text.includes("wta") ||
-    text.includes("grand slam")
-  ) return "tennis";
 
   if (
     text.includes("basketball") ||
@@ -109,11 +86,18 @@ function detectCategory(item) {
   ) return "basketball";
 
   if (
-    text.includes("esport") ||
+    text.includes("tennis") ||
+    text.includes("atp") ||
+    text.includes("wta") ||
+    text.includes("grand slam")
+  ) return "tennis";
+
+  if (
     text.includes("esports") ||
+    text.includes("esport") ||
     text.includes("gaming") ||
-    text.includes("fifa") ||
-    text.includes("ea fc")
+    text.includes("ea fc") ||
+    text.includes("fifa ")
   ) return "esports";
 
   return "football";
@@ -138,57 +122,70 @@ function buildHashtags(item) {
   return tags.join(" ");
 }
 
-function chooseLead(item) {
-  const title = stripHtml(item.title || "").trim();
-  const summary = stripHtml(item.contentSnippet || item.content || item.contentEncoded || "").trim();
+function humanLead(item) {
+  const text = normalizeText(`${item.title || ""} ${item.contentSnippet || ""}`);
 
-  const lower = normalizeText(`${title} ${summary}`);
-
-  if (lower.includes("wins") || lower.includes("beat") || lower.includes("victory")) {
-    return "Big result just landed.";
+  if (isMoroccanStory(item) && detectCategory(item) === "football") {
+    return "Moroccan football is back in focus.";
   }
-  if (lower.includes("injury") || lower.includes("ruled out") || lower.includes("doubt")) {
-    return "Important team news is in.";
+  if (text.includes("win") || text.includes("victory") || text.includes("beat")) {
+    return "Big result coming through.";
   }
-  if (lower.includes("transfer") || lower.includes("sign") || lower.includes("deal")) {
-    return "Transfer movement is picking up.";
+  if (text.includes("injury") || text.includes("ruled out") || text.includes("doubt")) {
+    return "Important team news just dropped.";
   }
-  if (lower.includes("final") || lower.includes("semi final") || lower.includes("quarter final")) {
-    return "This one could shape the bigger picture.";
+  if (text.includes("transfer") || text.includes("sign") || text.includes("deal")) {
+    return "Transfer movement is heating up.";
+  }
+  if (text.includes("final") || text.includes("semi final") || text.includes("quarter final")) {
+    return "A major step in the competition is taking shape.";
   }
   if (isMoroccanStory(item)) {
-    return "Fresh Moroccan sports update.";
+    return "Fresh update from Moroccan sport.";
   }
-
-  return "Fresh sports update.";
+  return "Fresh update from the sports world.";
 }
 
-function buildHumanRewrite(item) {
+function buildHumanStylePost(item) {
   const title = stripHtml(item.title || "Sports update").trim();
-  const rawSummary = stripHtml(item.contentSnippet || item.content || item.contentEncoded || "").trim();
+  let summary = stripHtml(item.contentSnippet || item.content || item.contentEncoded || "").trim();
 
-  let summary = rawSummary;
-  if (summary.length > 220) {
-    summary = `${summary.slice(0, 217).trim()}...`;
+  if (summary.length > 240) {
+    summary = `${summary.slice(0, 237).trim()}...`;
   }
 
-  const lead = chooseLead(item);
+  if (!summary) {
+    summary = "More details are now emerging around this story.";
+  }
+
+  const category = detectCategory(item);
+  const lead = humanLead(item);
   const hashtags = buildHashtags(item);
 
-  const blocks = [
+  let angle = "";
+  if (isMoroccanStory(item)) {
+    angle =
+      category === "football"
+        ? "This is one to watch closely for Moroccan football fans."
+        : "This matters for Morocco’s wider sports scene too.";
+  } else {
+    angle = "This one is worth watching as it develops.";
+  }
+
+  return [
     lead,
     "",
     title,
     "",
-    summary || "More details are emerging from the latest sports coverage.",
+    summary,
+    "",
+    angle,
     "",
     hashtags
-  ];
-
-  return blocks.join("\n");
+  ].join("\n");
 }
 
-function getImageFromMediaContent(mediaContent) {
+function pickImageFromMediaContent(mediaContent) {
   if (!Array.isArray(mediaContent)) return "";
 
   for (const item of mediaContent) {
@@ -213,13 +210,13 @@ function pickImageUrl(item) {
     }
   }
 
-  const mediaContentUrl = getImageFromMediaContent(item.mediaContent);
+  const mediaContentUrl = pickImageFromMediaContent(item.mediaContent);
   if (mediaContentUrl) return mediaContentUrl;
 
   if (Array.isArray(item.mediaThumbnail) && item.mediaThumbnail.length) {
     const thumb = item.mediaThumbnail[0];
-    const thumbUrl = thumb?.$?.url || thumb?.url || "";
-    if (thumbUrl) return thumbUrl;
+    const url = thumb?.$?.url || thumb?.url || "";
+    if (url) return url;
   }
 
   const htmlCandidates = [
@@ -237,27 +234,28 @@ function pickImageUrl(item) {
   return "";
 }
 
+function publishedTime(item) {
+  return new Date(item.isoDate || item.pubDate || Date.now()).getTime();
+}
+
 function scoreItem(item, sourceCountMap, moroccanTodayCount) {
-  const published = new Date(item.isoDate || item.pubDate || Date.now()).getTime();
-  const ageHours = Math.max((Date.now() - published) / (1000 * 60 * 60), 0);
+  const ageHours = Math.max((Date.now() - publishedTime(item)) / (1000 * 60 * 60), 0);
   const recencyScore = Math.max(0, 48 - ageHours);
+  const overlapScore = (sourceCountMap.get(buildFingerprint(item)) || 1) * 12;
+  const imageScore = pickImageUrl(item) ? 12 : -15;
+  const categoryScore =
+    detectCategory(item) === "football" ? 9 :
+    detectCategory(item) === "basketball" ? 4 :
+    detectCategory(item) === "tennis" ? 4 : 3;
 
-  const fingerprint = buildFingerprint(item);
-  const overlapScore = (sourceCountMap.get(fingerprint) || 1) * 12;
+  let moroccanScore = 0;
+  if (isMoroccanStory(item)) {
+    moroccanScore = moroccanTodayCount < MOROCCAN_TARGET_PER_DAY ? 30 : 14;
+  } else {
+    moroccanScore = 4;
+  }
 
-  const moroccanBoost = isMoroccanStory(item)
-    ? (moroccanTodayCount < MOROCCAN_TARGET_PER_DAY ? 26 : 12)
-    : 4;
-
-  const imageBoost = pickImageUrl(item) ? 10 : -12;
-
-  const category = detectCategory(item);
-  const categoryBoost =
-    category === "football" ? 8 :
-    category === "basketball" ? 4 :
-    category === "tennis" ? 3 : 2;
-
-  return recencyScore + overlapScore + moroccanBoost + imageBoost + categoryBoost;
+  return recencyScore + overlapScore + imageScore + categoryScore + moroccanScore;
 }
 
 async function fetchFeed(url) {
@@ -266,8 +264,7 @@ async function fetchFeed(url) {
     const items = Array.isArray(feed.items) ? feed.items : [];
     return items.slice(0, 25).map(item => ({
       ...item,
-      _feedUrl: url,
-      _isMoroccanFeed: MOROCCAN_FEEDS.includes(url)
+      _feedUrl: url
     }));
   } catch (err) {
     console.error("Feed error:", url, err.message);
@@ -276,8 +273,8 @@ async function fetchFeed(url) {
 }
 
 async function fetchAllNews() {
-  const results = await Promise.all(ALL_FEEDS.map(fetchFeed));
-  return results.flat();
+  const lists = await Promise.all(ALL_FEEDS.map(fetchFeed));
+  return lists.flat();
 }
 
 async function alreadyPosted(db, fingerprint) {
@@ -301,9 +298,8 @@ async function markAsPosted(db, item, fingerprint) {
   });
 }
 
-async function getTodayAutopostStats(db) {
-  const now = new Date();
-  const start = new Date(now);
+async function getTodayStats(db) {
+  const start = new Date();
   start.setHours(0, 0, 0, 0);
 
   const snap = await db.collection(HISTORY_COLLECTION)
@@ -314,24 +310,60 @@ async function getTodayAutopostStats(db) {
   let moroccan = 0;
 
   snap.forEach(doc => {
-    total += 1;
     const data = doc.data() || {};
+    total += 1;
     if (data.isMoroccan) moroccan += 1;
   });
 
   return { total, moroccan };
 }
 
+async function getSystemState(db) {
+  const ref = db.collection(STATE_COLLECTION).doc(STATE_DOC_ID);
+  const snap = await ref.get();
+
+  if (!snap.exists) {
+    return { paused: false };
+  }
+
+  return snap.data() || { paused: false };
+}
+
+async function setPaused(db, paused) {
+  const ref = db.collection(STATE_COLLECTION).doc(STATE_DOC_ID);
+  await ref.set(
+    {
+      paused: !!paused,
+      updatedAt: new Date()
+    },
+    { merge: true }
+  );
+
+  return { paused: !!paused };
+}
+
+async function getRecentAutoPosts(db, limit = 10) {
+  const snap = await db.collection(POSTS_COLLECTION)
+    .where("badge", "==", BADGE)
+    .orderBy("createdAt", "desc")
+    .limit(limit)
+    .get();
+
+  return snap.docs.map(doc => ({
+    id: doc.id,
+    ...doc.data()
+  }));
+}
+
 async function createPost(db, item) {
   const avatar = process.env.AI_AUTOPOST_AVATAR_URL || "";
   const mediaUrl = pickImageUrl(item);
-  const content = buildHumanRewrite(item);
 
   const post = {
     username: USERNAME,
     badge: BADGE,
     avatarUrl: avatar,
-    content,
+    content: buildHumanStylePost(item),
     mediaUrl: mediaUrl || "",
     mediaType: mediaUrl ? "image" : "",
     likes: 0,
@@ -352,56 +384,46 @@ async function pickBestCandidate(db) {
     throw new Error("No feed items found.");
   }
 
-  const todayStats = await getTodayAutopostStats(db);
+  const todayStats = await getTodayStats(db);
 
   const sourceCountMap = new Map();
   for (const item of allNews) {
-    const fp = buildFingerprint(item);
-    sourceCountMap.set(fp, (sourceCountMap.get(fp) || 0) + 1);
+    const key = buildFingerprint(item);
+    sourceCountMap.set(key, (sourceCountMap.get(key) || 0) + 1);
   }
 
   const ranked = allNews
     .filter(item => item.title && item.link)
-    .filter(item => {
-      if (!REQUIRE_IMAGE) return true;
-      return !!pickImageUrl(item);
-    })
+    .filter(item => REQUIRE_IMAGE ? !!pickImageUrl(item) : true)
     .sort((a, b) => scoreItem(b, sourceCountMap, todayStats.moroccan) - scoreItem(a, sourceCountMap, todayStats.moroccan));
 
   for (const item of ranked) {
     const fingerprint = buildFingerprint(item);
     const exists = await alreadyPosted(db, fingerprint);
-    if (!exists) {
-      return item;
-    }
+    if (!exists) return item;
   }
 
   return null;
 }
 
 async function runAutoPost(db) {
-  console.log("🧠 Running upgraded AI auto-post...");
+  const state = await getSystemState(db);
+  if (state.paused) {
+    return { ok: true, skipped: true, reason: "Autopost is paused." };
+  }
 
-  const todayStats = await getTodayAutopostStats(db);
+  const todayStats = await getTodayStats(db);
   if (todayStats.total >= DAILY_TARGET) {
-    return {
-      ok: true,
-      skipped: true,
-      reason: "Daily target already reached."
-    };
+    return { ok: true, skipped: true, reason: "Daily target already reached." };
   }
 
   const item = await pickBestCandidate(db);
-
   if (!item) {
-    return {
-      ok: true,
-      skipped: true,
-      reason: "No fresh unique story found."
-    };
+    return { ok: true, skipped: true, reason: "No fresh unique story found." };
   }
 
   const fingerprint = buildFingerprint(item);
+
   await createPost(db, item);
   await markAsPosted(db, item, fingerprint);
 
@@ -423,7 +445,8 @@ function startAiAutoPostSystem({ db }) {
     "0 9,12,15,18,21 * * *",
     async () => {
       try {
-        await runAutoPost(db);
+        const result = await runAutoPost(db);
+        console.log("Autopost result:", result);
       } catch (err) {
         console.error("AutoPost error:", err);
       }
@@ -434,5 +457,9 @@ function startAiAutoPostSystem({ db }) {
 
 module.exports = {
   startAiAutoPostSystem,
-  runAutoPost
+  runAutoPost,
+  setPaused,
+  getSystemState,
+  getTodayStats,
+  getRecentAutoPosts
 };

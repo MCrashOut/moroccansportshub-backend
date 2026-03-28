@@ -1,7 +1,15 @@
 const cron = require("node-cron");
 const Parser = require("rss-parser");
 
-const parser = new Parser();
+const parser = new Parser({
+  customFields: {
+    item: [
+      ["media:content", "mediaContent", { keepArray: true }],
+      ["media:thumbnail", "mediaThumbnail", { keepArray: true }],
+      ["enclosure", "enclosure", { keepArray: false }]
+    ]
+  }
+});
 
 const FEEDS = [
   "https://www.le360.ma/rss/sport",
@@ -30,14 +38,16 @@ function scoreItem(item, sourceCountMap) {
   return recencyScore + sourceScore * 10;
 }
 
-function generatePostText(item) {
-  const title = (item.title || "Sports update").trim();
-  const source = item.link || "";
-  const summary = (item.contentSnippet || item.content || "")
+function stripHtml(text = "") {
+  return String(text)
     .replace(/<[^>]*>/g, " ")
     .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 220);
+    .trim();
+}
+
+function generatePostText(item) {
+  const title = (item.title || "Sports update").trim();
+  const summary = stripHtml(item.contentSnippet || item.content || "").slice(0, 220);
 
   const lines = [
     "🧠 AI Sports Update",
@@ -46,11 +56,47 @@ function generatePostText(item) {
     "",
     summary || "Fresh sports update from today’s coverage.",
     "",
-    source ? `Source: ${source}` : "",
     "#sports #morocco #football"
-  ].filter(Boolean);
+  ];
 
   return lines.join("\n");
+}
+
+function pickImageUrl(item) {
+  if (item.enclosure && item.enclosure.url) {
+    const encType = String(item.enclosure.type || "").toLowerCase();
+    if (!encType || encType.startsWith("image/")) {
+      return item.enclosure.url;
+    }
+  }
+
+  if (Array.isArray(item.mediaContent) && item.mediaContent.length) {
+    const found = item.mediaContent.find(x => {
+      const medium = String(x.medium || "").toLowerCase();
+      const type = String(x.type || "").toLowerCase();
+      const url = x.$?.url || x.url;
+      return url && (medium === "image" || type.startsWith("image/") || (!medium && !type));
+    });
+    if (found) return found.$?.url || found.url || "";
+  }
+
+  if (Array.isArray(item.mediaThumbnail) && item.mediaThumbnail.length) {
+    const thumb = item.mediaThumbnail[0];
+    return thumb.$?.url || thumb.url || "";
+  }
+
+  const htmlSources = [
+    item["content:encoded"],
+    item.content,
+    item.summary
+  ].filter(Boolean);
+
+  for (const html of htmlSources) {
+    const match = String(html).match(/<img[^>]+src=["']([^"']+)["']/i);
+    if (match && match[1]) return match[1];
+  }
+
+  return "";
 }
 
 async function fetchAllNews() {
@@ -95,12 +141,15 @@ async function markAsPosted(db, item, fingerprint) {
 
 async function createPost(db, item) {
   const avatar = process.env.AI_AUTOPOST_AVATAR_URL || "";
+  const mediaUrl = pickImageUrl(item);
 
   const post = {
     username: "Rabii El Baghdadi",
     badge: "AI",
     avatarUrl: avatar,
     content: generatePostText(item),
+    mediaUrl: mediaUrl || "",
+    mediaType: mediaUrl ? "image" : "",
     likes: 0,
     hearts: 0,
     fires: 0,

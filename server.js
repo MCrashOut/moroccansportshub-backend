@@ -1,9 +1,19 @@
 require('dotenv').config();
 const express = require('express');
 const admin = require('firebase-admin');
-const { startAiAutoPostSystem, runAutoPost } = require('./moroccansportshub_ai_autopost_system');
+const {
+  startAiAutoPostSystem,
+  runAutoPost,
+  setPaused,
+  getSystemState,
+  getTodayStats,
+  getRecentAutoPosts
+} = require('./moroccansportshub_ai_autopost_system');
 
-// 🔥 INIT FIREBASE ADMIN (from Railway env)
+const app = express();
+const PORT = process.env.PORT || 3000;
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+
 if (!process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
   throw new Error('FIREBASE_SERVICE_ACCOUNT_JSON is missing.');
 }
@@ -16,14 +26,8 @@ admin.initializeApp({
 
 const db = admin.firestore();
 
-const app = express();
-const PORT = process.env.PORT || 3000;
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-
-// ✅ START AI AUTOPOST SYSTEM
 startAiAutoPostSystem({ db });
 
-// CORS
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Headers', 'Content-Type');
@@ -40,7 +44,6 @@ app.get('/', (_req, res) => {
   res.send('Moroccansportshub AI backend is running.');
 });
 
-// 🔥 YOUR EXISTING AI ROUTE
 app.post('/api/ask', async (req, res) => {
   try {
     const { question, siteContext = [] } = req.body || {};
@@ -113,7 +116,6 @@ ${contextText}User question: ${question}
   }
 });
 
-// ✅ TEST AUTOPOST ROUTE
 app.get('/test-autopost', async (_req, res) => {
   try {
     const result = await runAutoPost(db);
@@ -124,16 +126,74 @@ app.get('/test-autopost', async (_req, res) => {
   }
 });
 
-// ✅ AUTOPOST STATUS ROUTE
-app.get('/autopost-status', (_req, res) => {
-  res.json({
-    ok: true,
-    timezone: process.env.AUTOPOST_TIMEZONE || 'Africa/Casablanca',
-    requireImage: (process.env.AUTOPOST_REQUIRE_IMAGE || 'true').toLowerCase() !== 'false',
-    dailyTarget: Number(process.env.AUTOPOST_DAILY_TARGET || 5),
-    moroccanTargetPerDay: Number(process.env.AUTOPOST_MOROCCAN_TARGET_PER_DAY || 3),
-    avatarUrl: process.env.AI_AUTOPOST_AVATAR_URL || ''
-  });
+app.get('/force-autopost', async (_req, res) => {
+  try {
+    const result = await runAutoPost(db);
+    res.json({
+      ok: true,
+      forced: true,
+      result
+    });
+  } catch (err) {
+    console.error('force-autopost error:', err);
+    res.status(500).json({ error: err.message || 'Error' });
+  }
+});
+
+app.get('/pause-autopost', async (_req, res) => {
+  try {
+    const result = await setPaused(db, true);
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    console.error('pause-autopost error:', err);
+    res.status(500).json({ error: err.message || 'Error' });
+  }
+});
+
+app.get('/resume-autopost', async (_req, res) => {
+  try {
+    const result = await setPaused(db, false);
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    console.error('resume-autopost error:', err);
+    res.status(500).json({ error: err.message || 'Error' });
+  }
+});
+
+app.get('/autopost-status', async (_req, res) => {
+  try {
+    const state = await getSystemState(db);
+    const today = await getTodayStats(db);
+
+    res.json({
+      ok: true,
+      paused: !!state.paused,
+      timezone: process.env.AUTOPOST_TIMEZONE || 'Africa/Casablanca',
+      requireImage: (process.env.AUTOPOST_REQUIRE_IMAGE || 'true').toLowerCase() !== 'false',
+      dailyTarget: Number(process.env.AUTOPOST_DAILY_TARGET || 5),
+      moroccanTargetPerDay: Number(process.env.AUTOPOST_MOROCCAN_TARGET_PER_DAY || 3),
+      avatarUrl: process.env.AI_AUTOPOST_AVATAR_URL || '',
+      postedToday: today.total,
+      moroccanPostedToday: today.moroccan
+    });
+  } catch (err) {
+    console.error('autopost-status error:', err);
+    res.status(500).json({ error: err.message || 'Error' });
+  }
+});
+
+app.get('/autopost-last-posts', async (_req, res) => {
+  try {
+    const posts = await getRecentAutoPosts(db, 10);
+    res.json({
+      ok: true,
+      count: posts.length,
+      posts
+    });
+  } catch (err) {
+    console.error('autopost-last-posts error:', err);
+    res.status(500).json({ error: err.message || 'Error' });
+  }
 });
 
 app.listen(PORT, () => {

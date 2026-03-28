@@ -1,15 +1,27 @@
-const AI_AUTHOR = {
-  username: "Rabii El Baghdadi",
-  badge: "AI",
-  avatarUrl: ""
-};
 require('dotenv').config();
 const express = require('express');
+const admin = require('firebase-admin');
+
+// 🔥 INIT FIREBASE ADMIN (from Railway env)
+const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
+
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount)
+});
+
+const db = admin.firestore();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
+// ✅ IMPORT AI AUTOPOST SYSTEM
+const { startAiAutoPostSystem } = require('./moroccansportshub_ai_autopost_system');
+
+// ✅ START AUTOPOST SYSTEM
+startAiAutoPostSystem({ db });
+
+// CORS
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Headers', 'Content-Type');
@@ -26,6 +38,7 @@ app.get('/', (_req, res) => {
   res.send('Moroccansportshub AI backend is running.');
 });
 
+// 🔥 YOUR EXISTING AI ROUTE (UNCHANGED)
 app.post('/api/ask', async (req, res) => {
   try {
     const { question, siteContext = [] } = req.body || {};

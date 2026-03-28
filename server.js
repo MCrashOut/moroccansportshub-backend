@@ -1,3 +1,8 @@
+const AI_AUTHOR = {
+  username: "Rabii El Baghdadi",
+  badge: "AI",
+  avatarUrl: ""
+};
 require('dotenv').config();
 const express = require('express');
 

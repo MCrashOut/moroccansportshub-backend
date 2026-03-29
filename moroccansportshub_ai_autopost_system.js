@@ -363,9 +363,10 @@ async function postToBufferChannels(text) {
   ].filter(Boolean);
 
   if (!apiKey || channelIds.length === 0) {
-    console.log("⚠️ Buffer not configured. Skipping social posting.");
-    return;
+    return [{ ok: false, error: "Buffer not configured" }];
   }
+
+  const results = [];
 
   for (const channelId of channelIds) {
     try {
@@ -421,27 +422,50 @@ async function postToBufferChannels(text) {
       const data = await response.json();
 
       if (!response.ok) {
-        console.error("Buffer HTTP error:", response.status, data);
+        results.push({
+          ok: false,
+          channelId,
+          httpStatus: response.status,
+          data
+        });
         continue;
       }
 
       if (data.errors?.length) {
-        console.error("Buffer GraphQL errors:", data.errors);
+        results.push({
+          ok: false,
+          channelId,
+          graphqlErrors: data.errors
+        });
         continue;
       }
 
       const result = data?.data?.createPost;
 
       if (result?.message) {
-        console.error(`Buffer post failed for ${channelId}:`, result.message);
+        results.push({
+          ok: false,
+          channelId,
+          message: result.message
+        });
         continue;
       }
 
-      console.log(`📤 Buffer post sent for channel ${channelId}:`, result?.post?.id || "ok");
+      results.push({
+        ok: true,
+        channelId,
+        post: result?.post || null
+      });
     } catch (err) {
-      console.error(`❌ Buffer error for channel ${channelId}:`, err.message);
+      results.push({
+        ok: false,
+        channelId,
+        error: err.message
+      });
     }
   }
+
+  return results;
 }
 
 function buildBufferCaption(post) {
@@ -481,9 +505,13 @@ async function createPost(db, item) {
   await db.collection(POSTS_COLLECTION).add(post);
 
   const socialCaption = buildBufferCaption(post);
+  let bufferResults = [];
+
   if (socialCaption) {
-    await postToBufferChannels(socialCaption);
+    bufferResults = await postToBufferChannels(socialCaption);
   }
+
+  return { post, bufferResults };
 }
 
 async function pickBestCandidate(db) {
@@ -533,7 +561,7 @@ async function runAutoPost(db) {
 
   const fingerprint = buildFingerprint(item);
 
-  await createPost(db, item);
+  const created = await createPost(db, item);
   await markAsPosted(db, item, fingerprint);
 
   console.log("✅ Posted:", item.title);
@@ -543,7 +571,8 @@ async function runAutoPost(db) {
     title: item.title,
     isMoroccan: isMoroccanStory(item),
     category: detectCategory(item),
-    hasImage: !!pickImageUrl(item)
+    hasImage: !!pickImageUrl(item),
+    bufferResults: created?.bufferResults || []
   };
 }
 

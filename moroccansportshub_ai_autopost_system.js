@@ -67,7 +67,8 @@ function isMoroccanStory(item) {
     "atlas lion", "casablanca", "rabat", "wydad", "raja", "far rabat",
     "berkane", "nahdat berkane", "renaissance berkane", "hakimi",
     "ziyech", "ounahi", "en nesyri", "el kaabi", "bono", "moroccan football",
-    "moroccan league", "moroccan national team"
+    "moroccan league", "moroccan national team", "المغرب", "المنتخب المغربي",
+    "الأسود", "الرجاء", "الوداد", "البطولة", "المغربية"
   ];
 
   return signals.some(s => text.includes(s));
@@ -103,10 +104,31 @@ function detectCategory(item) {
   return "football";
 }
 
-function buildHashtags(item) {
-  const tags = ["#sports"];
+function getPostLanguage(item) {
+  return isMoroccanStory(item) ? "ar" : "en";
+}
+
+function buildHashtags(item, lang) {
   const category = detectCategory(item);
 
+  if (lang === "ar") {
+    const tags = ["#رياضة"];
+    if (category === "football") tags.push("#كرة_القدم");
+    if (category === "basketball") tags.push("#كرة_السلة");
+    if (category === "tennis") tags.push("#تنس");
+    if (category === "esports") tags.push("#رياضات_إلكترونية");
+
+    if (isMoroccanStory(item)) {
+      tags.push("#المغرب");
+      if (category === "football") tags.push("#البطولة");
+    } else {
+      tags.push("#رياضة_عالمية");
+    }
+
+    return tags.join(" ");
+  }
+
+  const tags = ["#sports"];
   if (category === "football") tags.push("#football");
   if (category === "basketball") tags.push("#basketball");
   if (category === "tennis") tags.push("#tennis");
@@ -122,66 +144,95 @@ function buildHashtags(item) {
   return tags.join(" ");
 }
 
-function humanLead(item) {
+function humanLead(item, lang) {
   const text = normalizeText(`${item.title || ""} ${item.contentSnippet || ""}`);
+  const moroccan = isMoroccanStory(item);
+  const category = detectCategory(item);
 
-  if (isMoroccanStory(item) && detectCategory(item) === "football") {
-    return "Moroccan football is back in focus.";
+  if (lang === "ar") {
+    if (moroccan && category === "football") return "خبر مهم لعشاق الكرة المغربية.";
+    if (text.includes("win") || text.includes("victory") || text.includes("beat")) return "انتصار لافت في الواجهة.";
+    if (text.includes("injury") || text.includes("ruled out") || text.includes("doubt")) return "تحديث مهم بخصوص الفريق.";
+    if (text.includes("transfer") || text.includes("sign") || text.includes("deal")) return "سوق الانتقالات بدأ يشتعل.";
+    if (text.includes("final") || text.includes("semi final") || text.includes("quarter final")) return "المنافسة تدخل مرحلة حاسمة.";
+    if (moroccan) return "آخر مستجدات الرياضة المغربية.";
+    return "آخر المستجدات من عالم الرياضة.";
   }
-  if (text.includes("win") || text.includes("victory") || text.includes("beat")) {
-    return "Big result coming through.";
-  }
-  if (text.includes("injury") || text.includes("ruled out") || text.includes("doubt")) {
-    return "Important team news just dropped.";
-  }
-  if (text.includes("transfer") || text.includes("sign") || text.includes("deal")) {
-    return "Transfer movement is heating up.";
-  }
-  if (text.includes("final") || text.includes("semi final") || text.includes("quarter final")) {
-    return "A major step in the competition is taking shape.";
-  }
-  if (isMoroccanStory(item)) {
-    return "Fresh update from Moroccan sport.";
-  }
+
+  if (moroccan && category === "football") return "Big update for Moroccan football fans.";
+  if (text.includes("win") || text.includes("victory") || text.includes("beat")) return "Big result just landed.";
+  if (text.includes("injury") || text.includes("ruled out") || text.includes("doubt")) return "Important team news just dropped.";
+  if (text.includes("transfer") || text.includes("sign") || text.includes("deal")) return "Transfer talk is heating up.";
+  if (text.includes("final") || text.includes("semi final") || text.includes("quarter final")) return "This competition is getting serious.";
+  if (moroccan) return "Fresh update from Moroccan sport.";
   return "Fresh update from the sports world.";
 }
 
+function buildAngle(item, lang) {
+  const category = detectCategory(item);
+  const moroccan = isMoroccanStory(item);
+
+  if (lang === "ar") {
+    if (moroccan) {
+      return category === "football"
+        ? "هذا الخبر يستحق المتابعة من الجماهير المغربية."
+        : "هذا التطور مهم للرياضة المغربية أيضاً.";
+    }
+    return "ملف يستحق المتابعة في الساعات القادمة.";
+  }
+
+  if (moroccan) {
+    return category === "football"
+      ? "One to watch closely for Moroccan football fans."
+      : "This matters for Morocco’s wider sports scene too.";
+  }
+
+  return "Worth watching as the story develops.";
+}
+
 function buildHumanStylePost(item) {
+  const lang = getPostLanguage(item);
   const title = stripHtml(item.title || "Sports update").trim();
   let summary = stripHtml(item.contentSnippet || item.content || item.contentEncoded || "").trim();
 
-  if (summary.length > 240) {
-    summary = `${summary.slice(0, 237).trim()}...`;
+  if (lang === "ar") {
+    if (summary.length > 180) {
+      summary = `${summary.slice(0, 177).trim()}...`;
+    }
+    if (!summary) {
+      summary = "تفاصيل إضافية بدأت تتضح حول هذا الخبر.";
+    }
+
+    return [
+      humanLead(item, lang),
+      "",
+      title,
+      "",
+      summary,
+      "",
+      buildAngle(item, lang),
+      "",
+      buildHashtags(item, lang)
+    ].join("\n");
   }
 
+  if (summary.length > 180) {
+    summary = `${summary.slice(0, 177).trim()}...`;
+  }
   if (!summary) {
-    summary = "More details are now emerging around this story.";
-  }
-
-  const category = detectCategory(item);
-  const lead = humanLead(item);
-  const hashtags = buildHashtags(item);
-
-  let angle = "";
-  if (isMoroccanStory(item)) {
-    angle =
-      category === "football"
-        ? "This is one to watch closely for Moroccan football fans."
-        : "This matters for Morocco’s wider sports scene too.";
-  } else {
-    angle = "This one is worth watching as it develops.";
+    summary = "More details are starting to emerge around this story.";
   }
 
   return [
-    lead,
+    humanLead(item, lang),
     "",
     title,
     "",
     summary,
     "",
-    angle,
+    buildAngle(item, lang),
     "",
-    hashtags
+    buildHashtags(item, lang)
   ].join("\n");
 }
 
@@ -362,13 +413,17 @@ function buildFacebookCaption(post) {
 }
 
 function buildTwitterCaption(post) {
-  const raw = String(post?.content || "").trim();
+  const raw = String(post?.content || "")
+    .replace(/\n+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
   const suffix = " 🌐 moroccansportshub.com";
-  const maxLen = 280 - suffix.length;
+  const hardLimit = 220;
 
   let shortText = raw;
-  if (shortText.length > maxLen) {
-    shortText = shortText.slice(0, maxLen - 3).trim() + "...";
+  if (shortText.length > hardLimit) {
+    shortText = shortText.slice(0, hardLimit - 3).trim() + "...";
   }
 
   return shortText + suffix;
@@ -628,7 +683,7 @@ function startAiAutoPostSystem({ db }) {
   console.log("🚀 AI AutoPost system started");
 
   cron.schedule(
-    "0 9,12,15,18,21 * * *",
+    "0 12,15,18,21,23 * * *",
     async () => {
       try {
         const result = await runAutoPost(db);

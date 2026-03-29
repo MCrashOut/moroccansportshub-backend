@@ -355,21 +355,67 @@ async function getRecentAutoPosts(db, limit = 10) {
   }));
 }
 
-async function postToBufferChannels(text) {
-  const apiKey = process.env.BUFFER_API_KEY;
-  const channelIds = [
-    process.env.BUFFER_FACEBOOK_CHANNEL_ID,
-    process.env.BUFFER_TWITTER_CHANNEL_ID
-  ].filter(Boolean);
+function buildFacebookCaption(post) {
+  const raw = String(post?.content || "").trim();
+  if (!raw) return "🌐 moroccansportshub.com";
+  return `${raw}\n\n🌐 moroccansportshub.com`;
+}
 
-  if (!apiKey || channelIds.length === 0) {
+function buildTwitterCaption(post) {
+  const raw = String(post?.content || "").trim();
+  const suffix = " 🌐 moroccansportshub.com";
+  const maxLen = 280 - suffix.length;
+
+  let shortText = raw;
+  if (shortText.length > maxLen) {
+    shortText = shortText.slice(0, maxLen - 3).trim() + "...";
+  }
+
+  return shortText + suffix;
+}
+
+async function postToBufferChannels(post) {
+  const apiKey = process.env.BUFFER_API_KEY;
+
+  const channels = [
+    {
+      channelId: process.env.BUFFER_FACEBOOK_CHANNEL_ID,
+      platform: "facebook"
+    },
+    {
+      channelId: process.env.BUFFER_TWITTER_CHANNEL_ID,
+      platform: "twitter"
+    }
+  ].filter(x => x.channelId);
+
+  if (!apiKey || channels.length === 0) {
     return [{ ok: false, error: "Buffer not configured" }];
   }
 
   const results = [];
 
-  for (const channelId of channelIds) {
+  for (const channel of channels) {
     try {
+      const text =
+        channel.platform === "twitter"
+          ? buildTwitterCaption(post)
+          : buildFacebookCaption(post);
+
+      const input = {
+        channelId: channel.channelId,
+        text,
+        schedulingType: "automatic",
+        mode: "shareNow"
+      };
+
+      if (channel.platform === "facebook") {
+        input.metadata = {
+          facebook: {
+            type: "post"
+          }
+        };
+      }
+
       const response = await fetch("https://api.buffer.com", {
         method: "POST",
         headers: {
@@ -408,14 +454,7 @@ async function postToBufferChannels(text) {
               }
             }
           `,
-          variables: {
-            input: {
-              channelId,
-              text,
-              schedulingType: "automatic",
-              mode: "shareNow"
-            }
-          }
+          variables: { input }
         })
       });
 
@@ -424,7 +463,8 @@ async function postToBufferChannels(text) {
       if (!response.ok) {
         results.push({
           ok: false,
-          channelId,
+          channelId: channel.channelId,
+          platform: channel.platform,
           httpStatus: response.status,
           data
         });
@@ -434,7 +474,8 @@ async function postToBufferChannels(text) {
       if (data.errors?.length) {
         results.push({
           ok: false,
-          channelId,
+          channelId: channel.channelId,
+          platform: channel.platform,
           graphqlErrors: data.errors
         });
         continue;
@@ -445,7 +486,8 @@ async function postToBufferChannels(text) {
       if (result?.message) {
         results.push({
           ok: false,
-          channelId,
+          channelId: channel.channelId,
+          platform: channel.platform,
           message: result.message
         });
         continue;
@@ -453,34 +495,21 @@ async function postToBufferChannels(text) {
 
       results.push({
         ok: true,
-        channelId,
+        channelId: channel.channelId,
+        platform: channel.platform,
         post: result?.post || null
       });
     } catch (err) {
       results.push({
         ok: false,
-        channelId,
+        channelId: channel.channelId,
+        platform: channel.platform,
         error: err.message
       });
     }
   }
 
   return results;
-}
-
-function buildBufferCaption(post) {
-  const raw = post?.content || "";
-  const cleaned = String(raw).trim();
-
-  if (!cleaned) return null;
-
-  const maxLen = 260;
-  const shortText =
-    cleaned.length > maxLen
-      ? cleaned.slice(0, maxLen - 3).trim() + "..."
-      : cleaned;
-
-  return `${shortText}\n\n🌐 moroccansportshub.com`;
 }
 
 async function createPost(db, item) {
@@ -504,12 +533,8 @@ async function createPost(db, item) {
 
   await db.collection(POSTS_COLLECTION).add(post);
 
-  const socialCaption = buildBufferCaption(post);
   let bufferResults = [];
-
-  if (socialCaption) {
-    bufferResults = await postToBufferChannels(socialCaption);
-  }
+  bufferResults = await postToBufferChannels(post);
 
   return { post, bufferResults };
 }

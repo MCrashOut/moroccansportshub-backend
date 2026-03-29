@@ -576,6 +576,29 @@ async function runAutoPost(db) {
   };
 }
 
+async function forceAutoPostNow(db) {
+  const item = await pickBestCandidate(db);
+
+  if (!item) {
+    return { ok: true, skipped: true, reason: "No fresh unique story found." };
+  }
+
+  const fingerprint = buildFingerprint(item);
+
+  const created = await createPost(db, item);
+  await markAsPosted(db, item, fingerprint);
+
+  return {
+    ok: true,
+    forced: true,
+    title: item.title,
+    isMoroccan: isMoroccanStory(item),
+    category: detectCategory(item),
+    hasImage: !!pickImageUrl(item),
+    bufferResults: created?.bufferResults || []
+  };
+}
+
 function startAiAutoPostSystem({ db }) {
   console.log("🚀 AI AutoPost system started");
 
@@ -596,6 +619,7 @@ function startAiAutoPostSystem({ db }) {
 module.exports = {
   startAiAutoPostSystem,
   runAutoPost,
+  forceAutoPostNow,
   setPaused,
   getSystemState,
   getTodayStats,

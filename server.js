@@ -4,6 +4,7 @@ const admin = require('firebase-admin');
 const {
   startAiAutoPostSystem,
   runAutoPost,
+  forceAutoPostNow,
   setPaused,
   getSystemState,
   getTodayStats,
@@ -137,7 +138,7 @@ app.get('/test-autopost', async (_req, res) => {
 
 app.get('/force-autopost', async (_req, res) => {
   try {
-    const result = await runAutoPost(db);
+    const result = await forceAutoPostNow(db);
     res.json({
       ok: true,
       forced: true,

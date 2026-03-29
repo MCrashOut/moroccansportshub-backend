@@ -47,7 +47,7 @@ app.get('/', (_req, res) => {
 
 app.post('/api/ask', async (req, res) => {
   try {
-    const { question, siteContext = [] } = req.body || {};
+    const { question, siteContext = [], lang = 'en' } = req.body || {};
 
     if (!question || typeof question !== 'string') {
       return res.status(400).json({ error: 'Question is required.' });
@@ -62,11 +62,20 @@ app.post('/api/ask', async (req, res) => {
         ? `Website context:\n${siteContext.map((x, i) => `${i + 1}. ${x}`).join('\n')}\n\n`
         : '';
 
+    const languageMap = {
+      en: 'English',
+      fr: 'French',
+      ar: 'Arabic'
+    };
+
+    const selectedLang = languageMap[lang] || 'English';
+
     const prompt = `
 You are the sports assistant for Moroccansportshub.
 
 Rules:
 - Only answer sports questions.
+- Respond in ${selectedLang}.
 - First use the website context if it contains the answer.
 - If the website context is enough, answer from it clearly.
 - If the website context is not enough, answer using general sports knowledge.
